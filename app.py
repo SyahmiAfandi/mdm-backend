@@ -43,8 +43,8 @@ def upload_files():
             return jsonify({"error": f"Error reading {file.filename}: {str(e)}"}), 500
 
     # Clean and prepare data
-    merged_df['Distributor'] = merged_df['Distributor'].fillna(method='ffill')
-    merged_df['Distributor Name'] = merged_df['Distributor Name'].fillna(method='ffill')
+    merged_df['Distributor'] = merged_df['Distributor'].ffill()
+    merged_df['Distributor Name'] = merged_df['Distributor Name'].ffill()
     
     # Get sorting parameters
     primary_sort = request.args.get('primary_sort', 'Distributor')
@@ -270,8 +270,8 @@ def upload_files_HPC_EFOS_sales_OSDP():
             return jsonify({"error": f"Error reading {file.filename}: {str(e)}"}), 500
 
     # Clean and prepare data
-    merged_df['Distributor'] = merged_df['Distributor'].fillna(method='ffill')
-    merged_df['Distributor Name'] = merged_df['Distributor Name'].fillna(method='ffill')
+    merged_df['Distributor'] = merged_df['Distributor'].ffill()
+    merged_df['Distributor Name'] = merged_df['Distributor Name'].ffill()
     
     # Get sorting parameters
     primary_sort = request.args.get('primary_sort', 'Distributor')

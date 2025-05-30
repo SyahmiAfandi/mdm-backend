@@ -350,6 +350,100 @@ def upload_files_HPC_EFOS_Sales_pbi():
         "summary_data_PBI": summary_df.to_dict(orient='records')
     })
 
+@app.route('/upload_HPCIQSALES_OSDP', methods=['POST'])
+def upload_files_HPC_IQ_sales_OSDP():
+    if 'files' not in request.files:
+        return jsonify({"error": "No files provided"}), 400
+
+    files = request.files.getlist('files')
+    if not files or len(files) == 0:
+        return jsonify({"error": "Empty file list"}), 400
+
+    merged_df = pd.DataFrame()
+
+    for file in files:
+        if file.filename == '':
+            continue
+        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(filepath)
+        try:
+            # Read specific columns from Excel (adjust column indices as needed)
+            df = pd.read_excel(filepath,skiprows=2,usecols=[0,1,2,5,6,7,10,11,12,25,26,27,35,36,37,55])
+            merged_df = pd.concat([merged_df, df], ignore_index=True)
+        except Exception as e:
+            return jsonify({"error": f"Error reading {file.filename}: {str(e)}"}), 500
+
+    # Clean and prepare data
+    merged_df['Distributor'] = merged_df['Distributor'].ffill()
+    merged_df['Distributor Name'] = merged_df['Distributor Name'].ffill()
+    
+    # Get sorting parameters
+    primary_sort = request.args.get('primary_sort', 'Distributor')
+    secondary_sort = request.args.get('secondary_sort', 'Sales Route')
+    primary_asc = request.args.get('primary_asc', 'true').lower() == 'true'
+    secondary_asc = request.args.get('secondary_asc', 'true').lower() == 'true'
+
+    # Sort the data
+    sorted_df = merged_df.sort_values(
+        by=[primary_sort, secondary_sort],
+        ascending=[primary_asc, secondary_asc]
+    )
+
+     # Create simplified summary - just distributor code and count
+    summary_df = sorted_df.groupby(['Distributor','Distributor Name']).size().reset_index(name='Total Data')
+
+    return jsonify({
+        "sorted_data": sorted_df.to_dict(orient='records'),
+        "summary_data": summary_df.to_dict(orient='records')
+    })
+
+@app.route('/upload_HPCIQSALES_PBI', methods=['POST'])
+def upload_files_HPC_IQ_Sales_pbi():
+    if 'files1' not in request.files:
+        return jsonify({"error": "No files provided"}), 400
+
+    files = request.files.getlist('files1')
+    if not files or len(files) == 0:
+        return jsonify({"error": "Empty file list"}), 400
+
+    merged_df1 = pd.DataFrame()
+
+    for file in files:
+        if file.filename == '':
+            continue
+        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(filepath)
+        try:
+            # Read specific columns (adjust as per your actual column names or indices)
+            df1 = pd.read_excel(filepath,usecols=[0,1,2,7,8,9,12,13,14,27,28,29,37,38,39,57])
+            df1.drop(df1.tail(2).index,inplace=True)
+            df1 = df1.fillna(0)
+            df1['Distributor'] = df1['Distributor'].astype(float)
+
+            merged_df1 = pd.concat([merged_df1, df1], ignore_index=True)
+        except Exception as e:
+            return jsonify({"error": f"Error reading {file.filename}: {str(e)}"}), 500
+    
+
+    # Sorting
+    primary_sort = request.args.get('primary_sort', 'Distributor')
+    secondary_sort = request.args.get('secondary_sort', 'Sales Route')
+    primary_asc = request.args.get('primary_asc', 'true').lower() == 'true'
+    secondary_asc = request.args.get('secondary_asc', 'true').lower() == 'true'
+
+    sorted_df = merged_df1.sort_values(
+        by=[primary_sort, secondary_sort],
+        ascending=[primary_asc, secondary_asc]
+    )
+
+    # Summary
+    summary_df = sorted_df.groupby(['Distributor', 'Distributor Name']).size().reset_index(name='Total Data')
+
+    return jsonify({
+        "sorted_data_PBI": sorted_df.to_dict(orient='records'),
+        "summary_data_PBI": summary_df.to_dict(orient='records')
+    })
+
 
 
 

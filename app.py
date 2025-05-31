@@ -1,11 +1,15 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask import Response
+from flask import send_file
+import xlsxwriter
+import io
 import os
 import pandas as pd
 import numpy as np
 import glob
 import json
+from datetime import datetime
 
 def convert_np(obj):
     if isinstance(obj, (np.integer, np.int64)):
@@ -444,8 +448,160 @@ def upload_files_HPC_IQ_Sales_pbi():
         "summary_data_PBI": summary_df.to_dict(orient='records')
     })
 
+@app.route('/export_summary_excel', methods=['POST'])
+def export_summary_excel():
+    data = request.get_json()
+    records = data.get("records", [])
+    report_type = data.get("report_type", "OSDP")
+
+    if not records:
+        return jsonify({"error": "No data to export"}), 400
+
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    worksheet = workbook.add_worksheet(f"{report_type} Summary")
+
+    # Define styles
+    header_format = workbook.add_format({
+        'bold': True, 'font_color': 'white', 'bg_color': '#4F81BD',
+        'border': 1, 'align': 'center'
+    })
+    match_format = workbook.add_format({'bg_color': '#C6EFCE', 'border': 1})
+    mismatch_format = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})
+    text_format = workbook.add_format({'border': 1})
+
+    # Headers
+    headers = ['Distributor', 'Distributor Name', 'Status']
+    for col, h in enumerate(headers):
+        worksheet.write(0, col, h, header_format)
+        worksheet.set_column(col, col, 20)
+
+    # Rows
+    for row_idx, row in enumerate(records, start=1):
+        worksheet.write(row_idx, 0, row['Distributor'], text_format)
+        worksheet.write(row_idx, 1, row['Distributor Name'], text_format)
+        status_format = match_format if row['Status'] == 'Match' else mismatch_format
+        worksheet.write(row_idx, 2, row['Status'], status_format)
+
+    workbook.close()
+    output.seek(0)
+    return send_file(output, download_name="summary_report.xlsx", as_attachment=True)
+
+@app.route('/export_result_excel', methods=['POST'])
+def export_result_excel():
+    data = request.get_json()
+    records = data.get('records', [])
+    mode = data.get('mode', 'current')
+    business_type = data.get('businessType', 'N/A')
+    report_type = data.get('reportType', 'N/A')
+    creator = data.get('creator', 'Auto Generated')
+
+    include_field_columns = mode == 'all' or any(row.get('Mismatch Type') == 'Value mismatch' for row in records)
+    headers = ['Distributor', 'Distributor Name', 'Sales Route', 'Mismatch Type'] + (['Field', 'OSDP', 'PBI'] if include_field_columns else [])
+
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    worksheet = workbook.add_worksheet('Reconciliation')
+
+    # Define formats
+    title_format = workbook.add_format({
+        'bold': True, 'font_size': 16, 'align': 'center', 'valign': 'vcenter', 'bg_color': '#DDEBF7', 'font_color': '#1F4E78'
+    })
+    subtitle_format = workbook.add_format({
+        'italic': True, 'font_size': 11, 'align': 'left', 'valign': 'vcenter', 'bg_color': '#F2F2F2'
+    })
+    meta_format = workbook.add_format({
+        'bg_color': '#F2F2F2'
+    })
+    header_format = workbook.add_format({
+        'bold': True, 'text_wrap': True, 'valign': 'middle', 'align': 'center', 'bg_color': '#B4C6E7', 'border': 1
+    })
+    center_format = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1})
+    left_format = workbook.add_format({'align': 'left', 'valign': 'vcenter', 'border': 1})
+    value_mismatch_format = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1, 'bg_color': '#F8CBAD'})
+    missing_osdp_format = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1, 'bg_color': '#FFE699'})
+    missing_pbi_format = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1, 'bg_color': '#BDD7EE'})
+    highlight_format = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1, 'bg_color': '#FFC7CE'})
+
+    subtitle_value_format = workbook.add_format({
+        'italic': True, 'font_size': 11, 'align': 'left', 'valign': 'vcenter', 'bg_color': '#F2F2F2'
+    })
+    # Header rows
+    worksheet.merge_range(0, 0, 0, len(headers) - 1, 'Mismatch Result Report', title_format)
+    worksheet.write('A2', 'Created by:', subtitle_format)
+    worksheet.write('D2', 'Business Type:', subtitle_format)
+    worksheet.write('A3', 'Created on:', subtitle_format)
+    worksheet.write('D3', 'Report Type:', subtitle_format)
+    
+    worksheet.merge_range('B2:C2', creator, subtitle_value_format)
+    worksheet.merge_range('E2:G2', business_type, subtitle_value_format)
+    worksheet.merge_range('B3:C3', datetime.now().strftime('%Y-%m-%d %H:%M'), subtitle_value_format)
+    worksheet.merge_range('E3:G3', report_type, subtitle_value_format)
 
 
+    worksheet.merge_range('A4:G4', '', meta_format)
+
+    for col, header in enumerate(headers):
+        worksheet.write(4, col, header, header_format)
+
+    col_widths = [len(header) for header in headers]
+    row_idx = 5
+
+    for row in records:
+        mismatch_type = row.get('Mismatch Type', '')
+        if mismatch_type == 'Value mismatch' and 'Differences' in row:
+            for field, values in row['Differences'].items():
+                values_to_write = [row.get('Distributor', ''), row.get('Distributor Name', ''), row.get('Sales Route', ''), mismatch_type, field, values.get('OSDP', ''), values.get('PBI', '')]
+                for col, val in enumerate(values_to_write):
+                    fmt = (value_mismatch_format if col == 3 else
+                           highlight_format if col in [5,6] and values.get('OSDP') != values.get('PBI') else
+                           center_format if col in [0,2,5,6] else
+                           left_format)
+                    worksheet.write(row_idx, col, '-' if val in [None, ''] else val, fmt)
+                    col_widths[col] = max(col_widths[col], len(str(val)))
+                row_idx += 1
+        elif mismatch_type == 'Value mismatch':
+            values_to_write = [row.get('Distributor', ''), row.get('Distributor Name', ''), row.get('Sales Route', ''), mismatch_type, '', '', '']
+            for col, val in enumerate(values_to_write):
+                fmt = (value_mismatch_format if col == 3 else center_format if col in [0,2,5,6] else left_format)
+                worksheet.write(row_idx, col, '-' if val in [None, ''] else val, fmt)
+                col_widths[col] = max(col_widths[col], len(str(val)))
+            row_idx += 1
+        elif mode == 'all':
+            values_to_write = [row.get('Distributor', ''), row.get('Distributor Name', ''), row.get('Sales Route', ''), mismatch_type, '', '', '']
+            for col, val in enumerate(values_to_write):
+                fmt = (missing_osdp_format if col == 3 and mismatch_type == 'Missing in OSDP' else
+                       missing_pbi_format if col == 3 and mismatch_type == 'Missing in PBI' else
+                       center_format if col in [0,2,5,6] else
+                       left_format)
+                worksheet.write(row_idx, col, '-' if val in [None, ''] else val, fmt)
+                col_widths[col] = max(col_widths[col], len(str(val)))
+            row_idx += 1
+        else:
+            values_to_write = [row.get('Distributor', ''), row.get('Distributor Name', ''), row.get('Sales Route', ''), mismatch_type]
+            for col, val in enumerate(values_to_write):
+                fmt = (missing_osdp_format if col == 3 and mismatch_type == 'Missing in OSDP' else
+                       missing_pbi_format if col == 3 and mismatch_type == 'Missing in PBI' else
+                       center_format if col in [0,2] else
+                       left_format)
+                worksheet.write(row_idx, col, '-' if val in [None, ''] else val, fmt)
+                col_widths[col] = max(col_widths[col], len(str(val)))
+            row_idx += 1
+
+    for col, width in enumerate(col_widths):
+        if include_field_columns and col in [5, 6]:
+            worksheet.set_column(col, col, 12)
+        else:
+            worksheet.set_column(col, col, width + 2)
+
+    worksheet.autofilter(4, 0, 4, len(headers) - 1)
+    worksheet.freeze_panes(5, 0)
+    worksheet.hide_gridlines(2)
+
+    workbook.close()
+    output.seek(0)
+
+    return send_file(output, as_attachment=True, download_name=f'Reconciliation_{mode}.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask import Response
 from flask import send_file
+from datetime import datetime, timedelta
 import xlsxwriter
 import io
 import os
@@ -9,7 +10,8 @@ import pandas as pd
 import numpy as np
 import glob
 import json
-from datetime import datetime
+
+
 
 def convert_np(obj):
     if isinstance(obj, (np.integer, np.int64)):
@@ -526,6 +528,14 @@ def export_result_excel():
     subtitle_value_format = workbook.add_format({
         'italic': True, 'font_size': 11, 'align': 'left', 'valign': 'vcenter', 'bg_color': '#F2F2F2'
     })
+
+    # Detect if running on Render (you can also check other env vars if needed)
+    is_render = os.getenv("RENDER", "").lower() == "true"
+
+    # Adjust time accordingly
+    current_time = datetime.utcnow() + timedelta(hours=8) if is_render else datetime.now()
+    formatted_time = current_time.strftime('%Y-%m-%d %H:%M')
+
     # Header rows
     worksheet.merge_range(0, 0, 0, len(headers) - 1, 'Mismatch Result Report', title_format)
     worksheet.write('A2', 'Created by:', subtitle_format)
@@ -535,7 +545,7 @@ def export_result_excel():
     
     worksheet.merge_range('B2:C2', creator, subtitle_value_format)
     worksheet.merge_range('E2:G2', business_type, subtitle_value_format)
-    worksheet.merge_range('B3:C3', datetime.now().strftime('%Y-%m-%d %H:%M'), subtitle_value_format)
+    worksheet.merge_range('B3:C3', formatted_time, subtitle_value_format)
     worksheet.merge_range('E3:G3', report_type, subtitle_value_format)
 
 

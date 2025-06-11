@@ -683,8 +683,21 @@ def convert_date():
     return send_file(output, download_name='converted_dates.xlsx', as_attachment=True)
 
     # Setup credentials and connect to Google Sheet
-scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+scope = [
+    'https://spreadsheets.google.com/feeds',
+    'https://www.googleapis.com/auth/drive'
+]
+
+# Load credentials from environment variable
+creds_json = os.environ.get('GOOGLE_CREDS')
+if creds_json:
+    creds_dict = json.loads(creds_json)
+    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+else:
+    credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+
+creds_dict = json.loads(creds_json)
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gc = gspread.authorize(credentials)
 
 SHEET_ID = '1ql1BfkiuRuU3A3mfOxEw_GoL2gP5ki7eQECHxyfvFwk'
@@ -754,6 +767,7 @@ def export_to_sheets():
         "updated_rows": updated_rows,
         "skipped_distributors": skipped_records
     })
+
 
 if __name__ == '__main__':
     app.run(debug=True)

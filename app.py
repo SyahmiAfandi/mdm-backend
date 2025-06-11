@@ -10,6 +10,9 @@ import pandas as pd
 import numpy as np
 import glob
 import json
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
 
 
 
@@ -612,6 +615,145 @@ def export_result_excel():
     output.seek(0)
 
     return send_file(output, as_attachment=True, download_name=f'Reconciliation_{mode}.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+# 🔧 Utility: Smart date parser to detect US vs EU formats
+def smart_parse_date(series):
+    parsed_us = pd.to_datetime(series, errors='coerce', dayfirst=False)
+    parsed_eu = pd.to_datetime(series, errors='coerce', dayfirst=True)
+
+    us_valid = parsed_us.notna().sum()
+    eu_valid = parsed_eu.notna().sum()
+
+    return parsed_eu if eu_valid > us_valid else parsed_us
+
+# 📌 Route 1: Get columns for user selection
+@app.route('/get_columns', methods=['POST'])
+def get_columns():
+    file = request.files['file']
+    ext = file.filename.split('.')[-1]
+
+    if ext == 'csv':
+        df = pd.read_csv(file, nrows=0)
+    else:
+        df = pd.read_excel(file, nrows=0)
+
+    return {'columns': df.columns.tolist()}
+
+
+# 📌 Route 2: Convert selected date columns to user-specified format
+@app.route('/convert_date', methods=['POST'])
+def convert_date():
+    file = request.files['file']
+    columns = request.form.get('columns')
+    date_format = request.form.get('format') or 'DD/MM/YYYY'
+
+    # Convert custom format to Python strftime
+    format_map = {
+        'DD/MM/YYYY': '%d/%m/%Y',
+        'DD/MM/YYYY HH:mm:ss': '%d/%m/%Y %H:%M:%S',
+        'YYYY-MM-DD': '%Y-%m-%d',
+    }
+    strf_format = format_map.get(date_format, '%d/%m/%Y')
+
+    # Load file
+    if file.filename.endswith('.csv'):
+        df = pd.read_csv(file)
+    else:
+        df = pd.read_excel(file)
+
+    # Load selected columns from frontend
+    try:
+        cols = list(eval(columns)) if columns else []
+    except Exception:
+        cols = []
+
+    # Convert each selected column
+    for col in cols:
+        if col in df.columns:
+            try:
+                parsed = smart_parse_date(df[col])
+                df[col] = parsed.dt.strftime(strf_format)
+            except Exception as e:
+                print(f"Failed to parse column {col}: {e}")
+
+    # Return converted Excel file
+    output = io.BytesIO()
+    df.to_excel(output, index=False)
+    output.seek(0)
+    return send_file(output, download_name='converted_dates.xlsx', as_attachment=True)
+
+    # Setup credentials and connect to Google Sheet
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+gc = gspread.authorize(credentials)
+
+SHEET_ID = '1ql1BfkiuRuU3A3mfOxEw_GoL2gP5ki7eQECHxyfvFwk'
+worksheet = gc.open_by_key(SHEET_ID).worksheet('Summary')
+
+
+@app.route('/export_to_sheets', methods=['POST'])
+def export_to_sheets():
+    data = request.get_json()
+
+    year = str(data['year']).strip()
+    month = str(data['month']).strip()
+    business_type = data['businessType'].strip().lower()
+    report_type = data['reportType'].strip().lower()
+    records = data['records']
+    pic = data['pic']
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    sheet_data = worksheet.get_all_records()
+    headers = worksheet.row_values(1)
+
+    updates = []
+    updated_rows = 0
+    skipped_records = []
+
+    for i, row in enumerate(sheet_data, start=2):  # i = actual sheet row (including header)
+        row_year = str(row['Year']).strip()
+        row_month = str(row['Month']).strip()
+        row_type = row['Business Type'].strip().lower()
+        row_report = row['Report Type'].strip().lower()
+        row_code = str(row['Distributor Code']).strip()
+
+        for record in records:
+            rec_code = str(record['Distributor']).strip()
+
+            if (
+                row_year == year and
+                row_month == month and
+                row_type == business_type and
+                row_report == report_type and
+                row_code == rec_code
+            ):
+                # Build A1 notation ranges and collect values
+                updates.append({
+                    'range': f'{gspread.utils.rowcol_to_a1(i, headers.index("Report Status") + 1)}',
+                    'values': [[record['Status']]]
+                })
+                updates.append({
+                    'range': f'{gspread.utils.rowcol_to_a1(i, headers.index("PIC") + 1)}',
+                    'values': [[pic]]
+                })
+                updates.append({
+                    'range': f'{gspread.utils.rowcol_to_a1(i, headers.index("Timestamp") + 1)}',
+                    'values': [[timestamp]]
+                })
+                updated_rows += 1
+                break
+        else:
+            skipped_records.append(row_code)
+
+    # Perform batch update to avoid 429 quota errors
+    if updates:
+        worksheet.batch_update(updates)
+
+    return jsonify({
+        "status": "success",
+        "updated_rows": updated_rows,
+        "skipped_distributors": skipped_records
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)

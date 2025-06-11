@@ -722,7 +722,7 @@ def export_to_sheets():
     pic = data['pic']
 
     current_time = datetime.utcnow() + timedelta(hours=8) if is_render else datetime.now()
-    formatted_time = current_time.strftime('%Y-%m-%d %H:%M')
+    formatted_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
 
     timestamp = formatted_time
 

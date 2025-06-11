@@ -704,8 +704,14 @@ SHEET_ID = '1ql1BfkiuRuU3A3mfOxEw_GoL2gP5ki7eQECHxyfvFwk'
 worksheet = gc.open_by_key(SHEET_ID).worksheet('Summary')
 
 
+
+
 @app.route('/export_to_sheets', methods=['POST'])
 def export_to_sheets():
+
+    # Detect if running on Render (you can also check other env vars if needed)
+    is_render = os.getenv("RENDER", "").lower() == "true"
+
     data = request.get_json()
 
     year = str(data['year']).strip()
@@ -714,7 +720,11 @@ def export_to_sheets():
     report_type = data['reportType'].strip().lower()
     records = data['records']
     pic = data['pic']
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    current_time = datetime.utcnow() + timedelta(hours=8) if is_render else datetime.now()
+    formatted_time = current_time.strftime('%Y-%m-%d %H:%M')
+
+    timestamp = formatted_time
 
     sheet_data = worksheet.get_all_records()
     headers = worksheet.row_values(1)

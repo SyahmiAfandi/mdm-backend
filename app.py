@@ -281,6 +281,17 @@ def upload_files_HPC_EFOS_sales_OSDP():
     # Clean and prepare data
     merged_df['Distributor'] = merged_df['Distributor'].ffill()
     merged_df['Distributor Name'] = merged_df['Distributor Name'].ffill()
+    columns_to_truncate = ['#SKU / Actual Calls', 
+                       'Effective Outlet Time /Actual Calls', 
+                       'PJP Compliance %',
+                       'Total Time Spent / Working Days',
+                       'Total Transit Time / Working Days',
+                       'Effective Outlet Time / Salesman',
+                       'Effective Day %'
+                       ]
+    
+    for col in columns_to_truncate:
+                merged_df[col] = np.round(merged_df[col],decimals=3)
     
     # Get sorting parameters
     primary_sort = request.args.get('primary_sort', 'Distributor')
@@ -333,8 +344,9 @@ def upload_files_HPC_EFOS_Sales_pbi():
 
             for col in columns_to_truncate:
                 df1[col] = np.trunc(df1[col] * (10**6)) / (10**6)
+                df1[col] = np.round(df1[col],decimals=3)
 
-
+            df1 = df1.fillna(0)
             merged_df1 = pd.concat([merged_df1, df1], ignore_index=True)
         except Exception as e:
             return jsonify({"error": f"Error reading {file.filename}: {str(e)}"}), 500
@@ -682,29 +694,28 @@ def convert_date():
     output.seek(0)
     return send_file(output, download_name='converted_dates.xlsx', as_attachment=True)
 
-    # Setup credentials and connect to Google Sheet
+# Setup credentials and connect to Google Sheet
 scope = [
     'https://spreadsheets.google.com/feeds',
     'https://www.googleapis.com/auth/drive'
 ]
 
-# Load credentials from environment variable
+import os, json
+from oauth2client.service_account import ServiceAccountCredentials
+
 creds_json = os.environ.get('GOOGLE_CREDS')
+
 if creds_json:
+    # Running on Render or other cloud with env variable
     creds_dict = json.loads(creds_json)
     credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 else:
-    credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+    # Running locally, use the file
+    credentials = ServiceAccountCredentials.from_json_keyfile_name(os.path.join(os.path.dirname(__file__), 'credentials.json'), scope)
 
-creds_dict = json.loads(creds_json)
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gc = gspread.authorize(credentials)
-
 SHEET_ID = '1ql1BfkiuRuU3A3mfOxEw_GoL2gP5ki7eQECHxyfvFwk'
 worksheet = gc.open_by_key(SHEET_ID).worksheet('Summary')
-
-
-
 
 @app.route('/export_to_sheets', methods=['POST'])
 def export_to_sheets():

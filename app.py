@@ -5221,6 +5221,10 @@ def export_ic_template():
 def api_test():
     return jsonify(status="ok"), 200
 
+@app.get("/")
+def api_root():
+    return jsonify(status="ok", service="mdm-backend"), 200
+
 @app.get("/__deps")
 def __deps():
     import sys
